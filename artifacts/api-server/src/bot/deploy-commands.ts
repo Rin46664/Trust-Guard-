@@ -4,8 +4,8 @@ import { logger } from "../lib/logger";
 
 export async function deployCommands() {
   const token = process.env["DISCORD_TOKEN"];
-  const clientId = process.env["DISCORD_CLIENT_ID"];
-  const guildId = process.env["DISCORD_GUILD_ID"];
+  const clientId = process.env["DISCORD_CLIENT_ID"]?.replace(/[^0-9]/g, "");
+  const guildId = process.env["DISCORD_GUILD_ID"]?.replace(/[^0-9]/g, "");
 
   if (!token || !clientId || !guildId) {
     logger.warn(

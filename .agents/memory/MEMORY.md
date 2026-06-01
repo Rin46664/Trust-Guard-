@@ -1,0 +1,1 @@
+- [Trust Guard architecture quirks](trust-guard-quirks.md) — critical non-obvious constraints for the Discord bot + dashboard project

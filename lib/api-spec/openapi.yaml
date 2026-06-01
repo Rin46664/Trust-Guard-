@@ -3,20 +3,27 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Trust Guard API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: dashboard
+    description: Dashboard statistics and management
+  - name: users
+    description: Verified user management
+  - name: reviews
+    description: Staff review queue
+  - name: logs
+    description: Verification event logs
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +31,197 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Get dashboard statistics
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /dashboard/users:
+    get:
+      operationId: getDashboardUsers
+      tags: [users]
+      summary: List verified users with search and filter
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: tier
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paginated user list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserListResponse"
+
+  /dashboard/users/{userId}:
+    get:
+      operationId: getDashboardUser
+      tags: [users]
+      summary: Get a single user's verification details
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDetail"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /dashboard/reviews:
+    get:
+      operationId: getPendingReviews
+      tags: [reviews]
+      summary: Get pending staff reviews
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Pending review list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewListResponse"
+
+  /dashboard/reviews/{id}/approve:
+    post:
+      operationId: approveReview
+      tags: [reviews]
+      summary: Approve a staff review (grant verified role)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionBody"
+      responses:
+        "200":
+          description: Review approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDecisionResponse"
+        "404":
+          description: Review not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /dashboard/reviews/{id}/deny:
+    post:
+      operationId: denyReview
+      tags: [reviews]
+      summary: Deny a staff review
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionBody"
+      responses:
+        "200":
+          description: Review denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDecisionResponse"
+        "404":
+          description: Review not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /dashboard/logs:
+    get:
+      operationId: getVerificationLogs
+      tags: [logs]
+      summary: Get verification event logs
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: eventType
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogListResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +229,168 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    DashboardStats:
+      type: object
+      properties:
+        totalVerified:
+          type: integer
+        totalFailed:
+          type: integer
+        pendingReviews:
+          type: integer
+        dailyJoins:
+          type: integer
+        riskDistribution:
+          type: object
+          properties:
+            tier1: { type: integer }
+            tier2: { type: integer }
+            tier3: { type: integer }
+            tier4: { type: integer }
+            tier5: { type: integer }
+            tier6: { type: integer }
+          required: [tier1, tier2, tier3, tier4, tier5, tier6]
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+      required: [totalVerified, totalFailed, pendingReviews, dailyJoins, riskDistribution, recentActivity]
+
+    VerifiedUserSummary:
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        guildId: { type: string }
+        username: { type: string }
+        displayName: { type: string, nullable: true }
+        avatarUrl: { type: string, nullable: true }
+        riskScore: { type: integer }
+        verificationTier: { type: integer }
+        status: { type: string }
+        verifiedAt: { type: string, nullable: true }
+        joinedAt: { type: string }
+        accountCreatedAt: { type: string }
+        hasAvatar: { type: boolean }
+        hasBanner: { type: boolean }
+        attemptCount: { type: integer }
+        createdAt: { type: string }
+      required: [id, userId, guildId, username, riskScore, verificationTier, status, joinedAt, accountCreatedAt, hasAvatar, hasBanner, attemptCount, createdAt]
+
+    UserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerifiedUserSummary"
+        total: { type: integer }
+        page: { type: integer }
+        totalPages: { type: integer }
+      required: [users, total, page, totalPages]
+
+    UserDetail:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/VerifiedUserSummary"
+        attempts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttemptSummary"
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+      required: [user, attempts, logs]
+
+    AttemptSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        tier: { type: integer }
+        riskScore: { type: integer }
+        status: { type: string }
+        captchaPassed: { type: boolean, nullable: true }
+        questionnairePassed: { type: boolean, nullable: true }
+        challengePassed: { type: boolean, nullable: true }
+        failureReason: { type: string, nullable: true }
+        startedAt: { type: string }
+        completedAt: { type: string, nullable: true }
+      required: [id, tier, riskScore, status, startedAt]
+
+    ReviewSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: string }
+        guildId: { type: string }
+        username: { type: string }
+        displayName: { type: string, nullable: true }
+        avatarUrl: { type: string, nullable: true }
+        riskScore: { type: integer }
+        tier: { type: integer }
+        questionnaireResponses: { type: string, nullable: true }
+        status: { type: string }
+        staffNotes: { type: string, nullable: true }
+        createdAt: { type: string }
+        resolvedAt: { type: string, nullable: true }
+      required: [id, userId, guildId, username, riskScore, tier, status, createdAt]
+
+    ReviewListResponse:
+      type: object
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewSummary"
+        total: { type: integer }
+        page: { type: integer }
+        totalPages: { type: integer }
+      required: [reviews, total, page, totalPages]
+
+    ReviewDecisionBody:
+      type: object
+      properties:
+        notes:
+          type: string
+      required: []
+
+    ReviewDecisionResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+      required: [success, message]
+
+    LogEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: string }
+        guildId: { type: string }
+        username: { type: string }
+        eventType: { type: string }
+        metadata: { type: string, nullable: true }
+        createdAt: { type: string }
+      required: [id, userId, guildId, username, eventType, createdAt]
+
+    LogListResponse:
+      type: object
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+        total: { type: integer }
+        page: { type: integer }
+        totalPages: { type: integer }
+      required: [logs, total, page, totalPages]
+
+    ErrorResponse:
+      type: object
+      properties:
+        error: { type: string }
+      required: [error]
