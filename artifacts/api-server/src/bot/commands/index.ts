@@ -1,10 +1,13 @@
 import type { TrustGuardClient } from "../client";
 import ping from "./ping";
-import setup from "./setup";
+import config from "./config";
+import dev from "./dev";
 import review from "./review";
 import stats from "./stats";
+import logs from "./logs";
+import userinfo from "./userinfo";
 
-const commands = [ping, setup, review, stats];
+const commands = [ping, config, dev, review, stats, logs, userinfo];
 
 export function loadCommands(client: TrustGuardClient) {
   for (const command of commands) {

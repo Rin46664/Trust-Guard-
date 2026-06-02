@@ -1,11 +1,13 @@
 import {
   Events,
+  PermissionsBitField,
   type GuildMember,
   type ModalSubmitInteraction,
   type ButtonInteraction,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  EmbedBuilder,
 } from "discord.js";
 import type { TrustGuardClient } from "../client";
 import { logger } from "../../lib/logger";
@@ -20,10 +22,13 @@ import {
 } from "../lib/verification";
 import {
   upsertUser, createAttempt, updateAttempt, updateUserStatus,
-  incrementUserAttempts, addLog, createStaffReview, getUser,
+  incrementUserAttempts, addLog, createStaffReview, getUser, getGuildConfig,
 } from "../lib/db";
 import { isRateLimited, recordAttempt, formatCooldown } from "../lib/rateLimiter";
-import { EmbedBuilder } from "discord.js";
+import {
+  logEvent, logError, logScript,
+  makeEventEmbed, makeErrorEmbed, makeScriptEmbed,
+} from "../lib/channelLogger";
 
 // Button IDs for multi-step flow
 const BTN_CONTINUE_QUESTIONNAIRE = "tg_continue_questionnaire";
@@ -38,17 +43,69 @@ function makeContinueRow(customId: string, label: string) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(btn);
 }
 
+function buildSubStr(interaction: { options?: { getSubcommand?: (required?: boolean) => string | null } }): string {
+  try {
+    return (interaction as any).options?.getSubcommand?.(false) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export default function registerInteractionCreateEvent(c: TrustGuardClient) {
   c.on(Events.InteractionCreate, async (interaction) => {
 
-    // ── Slash Commands ─────────────────────────────────────────────────────
+    // ── Slash Commands ─────────────────────────────────────────────────────────
     if (interaction.isChatInputCommand()) {
+      const guildId = interaction.guildId;
+      const member = interaction.member as GuildMember | null;
+
+      // Bot-channel restriction
+      if (guildId) {
+        try {
+          const cfg = await getGuildConfig(guildId);
+          if (cfg?.botChannelId && interaction.channelId !== cfg.botChannelId) {
+            const isAdmin = member?.permissions instanceof PermissionsBitField
+              ? member.permissions.has(PermissionsBitField.Flags.Administrator)
+              : false;
+            if (!isAdmin) {
+              await interaction.reply({
+                embeds: [
+                  new EmbedBuilder()
+                    .setDescription(`❌ Bot commands are restricted to <#${cfg.botChannelId}>.`)
+                    .setColor(0xed4245)
+                ],
+                ephemeral: true,
+              });
+              return;
+            }
+          }
+        } catch { /* ignore config fetch errors for restriction check */ }
+      }
+
       const command = c.commands.get(interaction.commandName);
       if (!command) return;
+
+      // Log to scripts channel
+      if (guildId) {
+        const sub = buildSubStr(interaction);
+        logScript(guildId, makeScriptEmbed(
+          `/${interaction.commandName}`,
+          interaction.user.id,
+          sub
+        ));
+      }
+
       try {
         await command.execute(interaction);
       } catch (err) {
         logger.error({ err, command: interaction.commandName }, "Command error");
+        if (guildId) {
+          logError(guildId, makeErrorEmbed(
+            `Command Error: /${interaction.commandName}`,
+            err,
+            [{ name: "User", value: `<@${interaction.user.id}>`, inline: true }]
+          ));
+        }
         const msg = { content: "❌ Something went wrong.", ephemeral: true };
         if (interaction.replied || interaction.deferred) await interaction.followUp(msg);
         else await interaction.reply(msg);
@@ -56,7 +113,7 @@ export default function registerInteractionCreateEvent(c: TrustGuardClient) {
       return;
     }
 
-    // ── Buttons ────────────────────────────────────────────────────────────
+    // ── Buttons ────────────────────────────────────────────────────────────────
     if (interaction.isButton()) {
       switch (interaction.customId) {
         case BTN_VERIFY:
@@ -71,7 +128,7 @@ export default function registerInteractionCreateEvent(c: TrustGuardClient) {
       }
     }
 
-    // ── Modals ─────────────────────────────────────────────────────────────
+    // ── Modals ─────────────────────────────────────────────────────────────────
     if (interaction.isModalSubmit()) {
       switch (interaction.customId) {
         case MODAL_CAPTCHA:
@@ -121,6 +178,16 @@ async function handleVerifyButton(interaction: ButtonInteraction) {
   await addLog(member.id, guildId, member.user.username, "started", {
     tier: assessment.tier, score: assessment.score, attemptId: attempt.id,
   });
+
+  logEvent(guildId, makeEventEmbed(
+    "▶️ Verification Started",
+    `<@${member.id}> started verification.`,
+    [
+      { name: "Tier", value: `Tier ${assessment.tier}`, inline: true },
+      { name: "Risk Score", value: `${assessment.score}/100`, inline: true },
+      { name: "Username", value: `@${member.user.username}`, inline: true },
+    ]
+  ));
 
   // Tier 1: instant
   if (assessment.tier === 1) {
@@ -205,6 +272,16 @@ async function handleCaptchaSubmit(interaction: ModalSubmitInteraction) {
     tier: session.tier, attemptId: session.attemptId,
   });
 
+  logEvent(guildId, makeEventEmbed(
+    passed ? "✅ Captcha Passed" : "❌ Captcha Failed",
+    `<@${member.id}> ${passed ? "solved" : "failed"} the captcha.`,
+    [
+      { name: "Tier", value: `Tier ${session.tier}`, inline: true },
+      { name: "Username", value: `@${member.user.username}`, inline: true },
+    ],
+    passed ? 0x57f287 : 0xed4245
+  ));
+
   if (!passed) {
     await updateAttempt(session.attemptId, { status: "captcha_failed", captchaPassed: false, failureReason: "Wrong captcha answer", completedAt: new Date() });
     clearSession(member.id, guildId);
@@ -268,6 +345,17 @@ async function handleQuestionnaireSubmit(interaction: ModalSubmitInteraction) {
     tier: session.tier, score: result.score, attemptId: session.attemptId,
   });
 
+  logEvent(guildId, makeEventEmbed(
+    result.passed ? "✅ Questionnaire Passed" : "❌ Questionnaire Failed",
+    `<@${member.id}> ${result.passed ? "passed" : "failed"} the questionnaire.`,
+    [
+      { name: "Tier", value: `Tier ${session.tier}`, inline: true },
+      { name: "Score", value: `${result.score}`, inline: true },
+      { name: "Username", value: `@${member.user.username}`, inline: true },
+    ],
+    result.passed ? 0x57f287 : 0xed4245
+  ));
+
   if (!result.passed) {
     await updateAttempt(session.attemptId, {
       status: "questionnaire_failed", questionnairePassed: false,
@@ -330,6 +418,16 @@ async function handleChallengeSubmit(interaction: ModalSubmitInteraction) {
     tier: session.tier, attemptId: session.attemptId,
   });
 
+  logEvent(guildId, makeEventEmbed(
+    passed ? "✅ Challenge Passed" : "❌ Challenge Failed",
+    `<@${member.id}> ${passed ? "passed" : "failed"} the final challenge.`,
+    [
+      { name: "Tier", value: `Tier ${session.tier}`, inline: true },
+      { name: "Username", value: `@${member.user.username}`, inline: true },
+    ],
+    passed ? 0x57f287 : 0xed4245
+  ));
+
   if (!passed) {
     await updateAttempt(session.attemptId, {
       status: "challenge_failed", challengePassed: false,
@@ -367,7 +465,7 @@ async function handleChallengeSubmit(interaction: ModalSubmitInteraction) {
   await updateAttempt(session.attemptId, { status: "pending_review", completedAt: new Date() });
   await updateUserStatus(member.id, guildId, "review");
 
-  const review = await createStaffReview(
+  const staffReview = await createStaffReview(
     member.id, guildId, member.user.username,
     member.displayName !== member.user.username ? member.displayName : null,
     member.user.avatarURL({ size: 256 }) ?? null,
@@ -378,27 +476,39 @@ async function handleChallengeSubmit(interaction: ModalSubmitInteraction) {
   );
 
   await addLog(member.id, guildId, member.user.username, "review_requested", {
-    tier: session.tier, reviewId: review.id,
+    tier: session.tier, reviewId: staffReview.id,
   });
+
+  logEvent(guildId, makeEventEmbed(
+    "🔍 Manual Review Required",
+    `<@${member.id}> requires staff review.`,
+    [
+      { name: "Username", value: `@${member.user.username}`, inline: true },
+      { name: "Tier", value: `Tier ${session.tier}`, inline: true },
+      { name: "Review ID", value: String(staffReview.id), inline: true },
+    ],
+    session.tier === 6 ? 0xed4245 : 0xeb459e
+  ));
+
   clearSession(member.id, guildId);
 
-  // Notify staff
+  // Notify staff in log channel
   try {
-    const { getGuildConfig } = await import("../lib/db");
     const config = await getGuildConfig(guildId);
     if (config?.logChannelId) {
-      const ch = await (await import("../client")).default.channels.fetch(config.logChannelId) as any;
+      const { default: botClient } = await import("../client");
+      const ch = await botClient.channels.fetch(config.logChannelId) as any;
       if (ch?.isTextBased()) {
         const embed = new EmbedBuilder()
           .setTitle("🔍 Manual Review Required")
-          .setDescription(`<@${member.id}> requires staff review.`)
+          .setDescription(`<@${member.id}> requires staff review. Use \`/review list\` to see pending reviews.`)
           .addFields(
             { name: "Username", value: `@${member.user.username}`, inline: true },
             { name: "User ID", value: member.id, inline: true },
             { name: "Tier", value: `Tier ${session.tier}`, inline: true },
-            { name: "Review ID", value: String(review.id), inline: true },
+            { name: "Review ID", value: String(staffReview.id), inline: true },
           )
-          .setColor(session.tier === 6 ? 0x2f3136 : 0xeb459e)
+          .setColor(session.tier === 6 ? 0xed4245 : 0xeb459e)
           .setTimestamp();
         await ch.send({ embeds: [embed] });
       }

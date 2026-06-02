@@ -19,6 +19,10 @@ import { generateVerificationCard } from "./verificationCard";
 import { getGuildConfig, addLog } from "./db";
 import client from "../client";
 import { logger } from "../../lib/logger";
+import {
+  logEvent, logError,
+  makeEventEmbed, makeErrorEmbed,
+} from "./channelLogger";
 
 // ── Custom IDs ────────────────────────────────────────────────────────────────
 export const BTN_VERIFY = "tg_verify";
@@ -56,6 +60,12 @@ export function setSession(userId: string, guildId: string, session: Verificatio
 
 export function clearSession(userId: string, guildId: string) {
   sessions.delete(sessionKey(userId, guildId));
+}
+
+export function clearAllSessions(): number {
+  const count = sessions.size;
+  sessions.clear();
+  return count;
 }
 
 // ── Embeds ────────────────────────────────────────────────────────────────────
@@ -169,17 +179,26 @@ export async function assignVerifiedRole(member: GuildMember): Promise<boolean> 
 
   if (!roleId) {
     logger.warn({ guildId: member.guild.id }, "No verified role configured");
+    logError(member.guild.id, makeErrorEmbed(
+      "No Verified Role Configured",
+      "Cannot assign role — set one with `/config verified-role`",
+      [{ name: "Guild", value: member.guild.id }]
+    ));
     return false;
   }
 
   if (member.roles.cache.has(roleId)) {
-    logger.info({ userId: member.id }, "User already has verified role, skipping");
     return true;
   }
 
   const role = member.guild.roles.cache.get(roleId);
   if (!role) {
-    logger.error({ roleId }, "Verified role not found");
+    logger.error({ roleId }, "Verified role not found in guild");
+    logError(member.guild.id, makeErrorEmbed(
+      "Verified Role Not Found",
+      `Role ID \`${roleId}\` does not exist in this server.`,
+      [{ name: "User", value: `<@${member.id}>`, inline: true }]
+    ));
     return false;
   }
 
@@ -189,6 +208,14 @@ export async function assignVerifiedRole(member: GuildMember): Promise<boolean> 
     return true;
   } catch (err) {
     logger.error({ err, userId: member.id }, "Failed to assign role");
+    logError(member.guild.id, makeErrorEmbed(
+      "Role Assignment Failed",
+      err,
+      [
+        { name: "User", value: `<@${member.id}>`, inline: true },
+        { name: "Role", value: `<@&${roleId}>`, inline: true },
+      ]
+    ));
     return false;
   }
 }
@@ -217,6 +244,11 @@ export async function postVerificationCard(member: GuildMember, riskScore: numbe
     });
   } catch (err) {
     logger.error({ err }, "Failed to generate verification card");
+    logError(member.guild.id, makeErrorEmbed(
+      "Verification Card Generation Failed",
+      err,
+      [{ name: "User", value: `<@${member.id}>`, inline: true }]
+    ));
     return;
   }
 
@@ -235,7 +267,7 @@ export async function postVerificationCard(member: GuildMember, riskScore: numbe
     .setColor(getTierColor(tier))
     .setTimestamp();
 
-  const channelIds = [logChannelId, welcomeChannelId].filter(Boolean) as string[];
+  const channelIds = [...new Set([logChannelId, welcomeChannelId])].filter(Boolean) as string[];
 
   for (const channelId of channelIds) {
     try {
@@ -247,6 +279,18 @@ export async function postVerificationCard(member: GuildMember, riskScore: numbe
       logger.error({ err, channelId }, "Failed to post verification card");
     }
   }
+
+  // Also log the event to the log channel
+  logEvent(member.guild.id, makeEventEmbed(
+    "🏅 Member Verified",
+    `<@${member.id}> passed verification.`,
+    [
+      { name: "Tier", value: `Tier ${tier} — ${getTierLabel(tier)}`, inline: true },
+      { name: "Trust Score", value: `${100 - riskScore}/100`, inline: true },
+      { name: "Username", value: `@${member.user.username}`, inline: true },
+    ],
+    getTierColor(tier)
+  ));
 }
 
 // ── Verification Channel Setup ────────────────────────────────────────────────

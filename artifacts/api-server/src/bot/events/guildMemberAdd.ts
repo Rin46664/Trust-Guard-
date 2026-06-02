@@ -5,6 +5,7 @@ import { buildWelcomeEmbed, buildVerifyButton } from "../lib/verification";
 import { upsertUser, addLog, getGuildConfig } from "../lib/db";
 import { recordJoin } from "../lib/rateLimiter";
 import { logger } from "../../lib/logger";
+import { logEvent, logError, makeEventEmbed, makeErrorEmbed } from "../lib/channelLogger";
 import client from "../client";
 
 export default function registerGuildMemberAddEvent(c: TrustGuardClient) {
@@ -13,6 +14,11 @@ export default function registerGuildMemberAddEvent(c: TrustGuardClient) {
       const isMassJoin = recordJoin(member.guild.id);
       if (isMassJoin) {
         logger.warn({ guildId: member.guild.id }, "Mass join detected");
+        logError(member.guild.id, makeErrorEmbed(
+          "⚠️ Mass Join Detected",
+          "Unusual join rate detected. Potential raid or bot wave.",
+          [{ name: "Guild", value: member.guild.id }]
+        ));
       }
 
       const assessment = assessRisk(member);
@@ -25,32 +31,55 @@ export default function registerGuildMemberAddEvent(c: TrustGuardClient) {
         massJoin: isMassJoin,
       });
 
-      // Try to find the verification channel from config
+      // Log join to activity channel
+      const ageDays = Math.floor(assessment.accountAgeDays);
+      logEvent(member.guild.id, makeEventEmbed(
+        "👋 Member Joined",
+        `<@${member.id}> joined the server.`,
+        [
+          { name: "Risk Tier", value: `Tier ${assessment.tier}`, inline: true },
+          { name: "Risk Score", value: `${assessment.score}/100`, inline: true },
+          { name: "Account Age", value: `${ageDays} day${ageDays === 1 ? "" : "s"}`, inline: true },
+          { name: "Username", value: `@${member.user.username}`, inline: true },
+          { name: "Signals", value: assessment.signals.length ? assessment.signals.join(", ") : "None", inline: true },
+          { name: "Mass Join", value: isMassJoin ? "⚠️ Yes" : "No", inline: true },
+        ],
+        assessment.score > 60 ? 0xfee75c : 0x5865f2
+      ));
+
       const config = await getGuildConfig(member.guild.id);
       const verifyChannelId = config?.verificationChannelId;
 
+      // Check if bot is enabled
+      if (config?.enabled === false) {
+        logger.info({ userId: member.id }, "Bot disabled — skipping verification prompt");
+        return;
+      }
+
       if (verifyChannelId) {
-        // Post a DM-style welcome pointing them to the verification channel
         try {
           const embed = buildWelcomeEmbed(member, assessment.tier, assessment.score);
           await member.send({ embeds: [embed], components: [buildVerifyButton()] });
           await addLog(member.id, member.guild.id, member.user.username, "dm_sent", { tier: assessment.tier });
         } catch {
-          // DMs might be closed — fall back to posting in verify channel
+          // DMs closed — post in verification channel
           try {
             const ch = await client.channels.fetch(verifyChannelId) as TextChannel | null;
             if (ch?.isTextBased()) {
               const embed = buildWelcomeEmbed(member, assessment.tier, assessment.score);
               const msg = await ch.send({ content: `<@${member.id}>`, embeds: [embed], components: [buildVerifyButton()] });
-              // Auto-delete after 10 minutes if not verified
               setTimeout(() => msg.delete().catch(() => {}), 10 * 60 * 1000);
             }
           } catch (err) {
             logger.error({ err, userId: member.id }, "Failed to send verification prompt");
+            logError(member.guild.id, makeErrorEmbed(
+              "Failed to Send Verification Prompt",
+              err,
+              [{ name: "User", value: `<@${member.id}>`, inline: true }]
+            ));
           }
         }
       } else {
-        // No config yet — try DM only
         try {
           const embed = buildWelcomeEmbed(member, assessment.tier, assessment.score);
           await member.send({ embeds: [embed], components: [buildVerifyButton()] });
@@ -62,6 +91,11 @@ export default function registerGuildMemberAddEvent(c: TrustGuardClient) {
       logger.info({ userId: member.id, tier: assessment.tier, score: assessment.score }, "Member processed on join");
     } catch (err) {
       logger.error({ err, userId: member.id }, "Error processing new member");
+      logError(member.guild.id, makeErrorEmbed(
+        "Guild Member Add Error",
+        err,
+        [{ name: "User", value: `<@${member.id}>`, inline: true }]
+      ));
     }
   });
 }
