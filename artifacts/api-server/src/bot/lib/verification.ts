@@ -70,42 +70,22 @@ export function clearAllSessions(): number {
 
 // ── Embeds ────────────────────────────────────────────────────────────────────
 
-export function buildWelcomeEmbed(member: GuildMember, tier: RiskTier, score: number) {
-  const color = getTierColor(tier);
-  const tierName = getTierLabel(tier);
-
+export function buildWelcomeEmbed(member: GuildMember, tier: RiskTier, _score: number) {
   const descriptions: Record<RiskTier, string> = {
-    1: "Your account is established and trusted. Click **Verify** to gain instant access.",
-    2: "Please complete a quick captcha to verify you're human.",
-    3: "Please complete a captcha and a short questionnaire to verify your account.",
-    4: "Your account requires additional verification. Please complete the captcha, questionnaire, and a challenge.",
-    5: "Your account requires thorough verification and staff review before access is granted.",
-    6: "Accounts less than 24 hours old require full verification and mandatory staff approval.",
+    1: "Click **Verify Me** below to gain access to the server.",
+    2: "Click **Verify Me** below to complete a quick security check.",
+    3: "Click **Verify Me** below to complete a short verification process.",
+    4: "Click **Verify Me** below to complete our verification steps.",
+    5: "Click **Verify Me** below to begin. Your account will be reviewed by our team before access is granted.",
+    6: "Click **Verify Me** below to begin. Staff approval is required for new accounts.",
   };
 
   return new EmbedBuilder()
-    .setTitle("🛡️ Trust Guard Verification")
-    .setDescription(`Welcome, <@${member.id}>!\n\n${descriptions[tier]}`)
-    .addFields(
-      { name: "Risk Level", value: tierName, inline: true },
-      { name: "Trust Score", value: `${100 - score}/100`, inline: true },
-      { name: "Verification Steps", value: getStepsList(tier), inline: false }
-    )
-    .setColor(color)
+    .setTitle("🛡️ Server Verification")
+    .setDescription(`Welcome, <@${member.id}>!\n\nTo access the server you need to verify your account.\n\n${descriptions[tier]}`)
+    .setColor(0x5865f2)
     .setFooter({ text: "Trust Guard • Verification System" })
     .setTimestamp();
-}
-
-function getStepsList(tier: RiskTier): string {
-  const steps: Record<RiskTier, string> = {
-    1: "1. Click Verify → ✅ Done",
-    2: "1. Click Verify\n2. Solve captcha\n3. ✅ Done",
-    3: "1. Click Verify\n2. Solve captcha\n3. Answer questionnaire\n4. ✅ Done",
-    4: "1. Click Verify\n2. Solve captcha\n3. Answer questionnaire\n4. Complete challenge\n5. ✅ Done",
-    5: "1. Click Verify\n2. Solve captcha\n3. Answer questionnaire\n4. Complete challenge\n5. 👤 Staff review",
-    6: "1. Click Verify\n2. Solve captcha\n3. Answer questionnaire\n4. Complete challenge\n5. ⏳ Cooldown\n6. 👤 Staff review",
-  };
-  return steps[tier];
 }
 
 export function buildVerifyButton() {
@@ -255,16 +235,14 @@ export async function postVerificationCard(member: GuildMember, riskScore: numbe
   const attachment = new AttachmentBuilder(cardBuffer, { name: "verification.png" });
 
   const embed = new EmbedBuilder()
-    .setTitle("✅ User Verified")
-    .setDescription(`<@${member.id}> has been verified.`)
+    .setTitle("✅ Member Verified")
+    .setDescription(`<@${member.id}> has passed verification.`)
     .addFields(
       { name: "Username", value: `@${member.user.username}`, inline: true },
       { name: "User ID", value: member.id, inline: true },
-      { name: "Tier", value: `Tier ${tier} — ${getTierLabel(tier)}`, inline: true },
-      { name: "Trust Score", value: `${100 - riskScore}/100`, inline: true }
     )
     .setImage("attachment://verification.png")
-    .setColor(getTierColor(tier))
+    .setColor(0x57f287)
     .setTimestamp();
 
   const channelIds = [...new Set([logChannelId, welcomeChannelId])].filter(Boolean) as string[];
@@ -299,20 +277,12 @@ export async function sendVerificationMessage(channel: TextChannel, guildId: str
   const embed = new EmbedBuilder()
     .setTitle("🛡️ Server Verification")
     .setDescription(
-      "To access the rest of the server, please verify your account.\n\n" +
-      "Our system will assess your account and route you through the appropriate verification steps automatically.\n\n" +
-      "**Click the button below to begin.**"
-    )
-    .addFields(
-      { name: "Tier 1 — Trusted", value: "Instant access", inline: true },
-      { name: "Tier 2 — Normal", value: "Quick captcha", inline: true },
-      { name: "Tier 3 — Newer", value: "Captcha + questionnaire", inline: true },
-      { name: "Tier 4 — High Risk", value: "Full verification", inline: true },
-      { name: "Tier 5 — Extreme", value: "Full + staff review", inline: true },
-      { name: "Tier 6 — Fresh", value: "Full + mandatory review", inline: true }
+      "Welcome! To access the rest of the server you need to verify your account.\n\n" +
+      "**Click the button below to get started.**\n\n" +
+      "The process only takes a moment. If you can't see this button, use the `/verify` command."
     )
     .setColor(0x5865f2)
-    .setFooter({ text: "Trust Guard • Risk-Based Verification" })
+    .setFooter({ text: "Trust Guard • Verification System" })
     .setTimestamp();
 
   await channel.send({ embeds: [embed], components: [buildVerifyButton()] });

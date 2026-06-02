@@ -3,38 +3,20 @@ import type { SKRSContext2D } from "@napi-rs/canvas";
 import type { RiskTier } from "./riskScoring";
 import { logger } from "../../lib/logger";
 
-const WIDTH = 1200;
-const HEIGHT = 675;
+const WIDTH = 800;
+const HEIGHT = 280;
 
-function tierColor(tier: RiskTier): string {
+function accentColor(tier: RiskTier): string {
   const colors: Record<RiskTier, string> = {
     1: "#57f287", 2: "#5865f2", 3: "#fee75c",
-    4: "#ed4245", 5: "#eb459e", 6: "#4f545c",
+    4: "#ed4245", 5: "#eb459e", 6: "#5865f2",
   };
   return colors[tier];
-}
-
-function tierLabel(tier: RiskTier): string {
-  const labels: Record<RiskTier, string> = {
-    1: "TRUSTED", 2: "NORMAL", 3: "NEWER ACCOUNT",
-    4: "HIGH RISK", 5: "EXTREME RISK", 6: "FRESH ACCOUNT",
-  };
-  return labels[tier];
-}
-
-function riskLabel(score: number): string {
-  if (score <= 10) return "VERY LOW";
-  if (score <= 25) return "LOW";
-  if (score <= 45) return "MEDIUM";
-  if (score <= 65) return "HIGH";
-  if (score <= 80) return "CRITICAL";
-  return "MAXIMUM";
 }
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", {
     year: "numeric", month: "short", day: "numeric",
-    hour: "2-digit", minute: "2-digit",
   });
 }
 
@@ -67,53 +49,41 @@ export interface CardOptions {
 export async function generateVerificationCard(opts: CardOptions): Promise<Buffer> {
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext("2d");
-  const accent = tierColor(opts.tier);
+  const accent = accentColor(opts.tier);
 
   // Background
-  const bg = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
-  bg.addColorStop(0, "#0d0f13");
-  bg.addColorStop(0.5, "#111318");
-  bg.addColorStop(1, "#0a0c10");
-  ctx.fillStyle = bg;
+  ctx.fillStyle = "#0f1117";
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-  // Subtle grid
-  ctx.strokeStyle = "rgba(255,255,255,0.03)";
-  ctx.lineWidth = 1;
-  for (let x = 0; x < WIDTH; x += 60) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, HEIGHT); ctx.stroke();
-  }
-  for (let y = 0; y < HEIGHT; y += 60) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WIDTH, y); ctx.stroke();
-  }
-
-  // Glow
-  const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, 500);
-  glow.addColorStop(0, `${accent}22`);
+  // Subtle gradient overlay
+  const glow = ctx.createRadialGradient(120, HEIGHT / 2, 0, 120, HEIGHT / 2, 300);
+  glow.addColorStop(0, `${accent}18`);
   glow.addColorStop(1, "transparent");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-  // Glass card
-  ctx.fillStyle = "rgba(255,255,255,0.05)";
-  drawRoundedRect(ctx, 40, 40, WIDTH - 80, HEIGHT - 80, 24);
-  ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,0.1)";
+  // Card border
+  ctx.strokeStyle = "rgba(255,255,255,0.08)";
   ctx.lineWidth = 1;
+  drawRoundedRect(ctx, 1, 1, WIDTH - 2, HEIGHT - 2, 16);
   ctx.stroke();
 
-  // Accent bar
+  // Left accent bar
   ctx.fillStyle = accent;
-  drawRoundedRect(ctx, 40, 40, 6, HEIGHT - 80, 3);
+  drawRoundedRect(ctx, 0, 0, 5, HEIGHT, 3);
   ctx.fill();
 
   // Avatar
-  const avatarX = 80, avatarY = 90, avatarSize = 120;
+  const avatarSize = 100;
+  const avatarX = 36;
+  const avatarY = (HEIGHT - avatarSize) / 2;
+  const cx = avatarX + avatarSize / 2;
+  const cy = avatarY + avatarSize / 2;
+
   ctx.save();
   ctx.beginPath();
-  ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+  ctx.arc(cx, cy, avatarSize / 2, 0, Math.PI * 2);
   ctx.clip();
-
   if (opts.avatarUrl) {
     try {
       const img = await loadImage(opts.avatarUrl + "?size=256");
@@ -126,106 +96,88 @@ export async function generateVerificationCard(opts: CardOptions): Promise<Buffe
     ctx.fillStyle = "#2f3136";
     ctx.fillRect(avatarX, avatarY, avatarSize, avatarSize);
     ctx.fillStyle = "#72767d";
-    ctx.font = "bold 48px sans-serif";
+    ctx.font = "bold 40px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(opts.username[0]?.toUpperCase() ?? "?", avatarX + avatarSize / 2, avatarY + avatarSize / 2);
+    ctx.fillText(opts.username[0]?.toUpperCase() ?? "?", cx, cy);
   }
   ctx.restore();
 
   // Avatar ring
   ctx.beginPath();
-  ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2 + 3, 0, Math.PI * 2);
+  ctx.arc(cx, cy, avatarSize / 2 + 3, 0, Math.PI * 2);
   ctx.strokeStyle = accent;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // Header label
-  ctx.fillStyle = accent;
-  ctx.font = "bold 14px sans-serif";
+  // Name section
+  const textX = 160;
+  const name = opts.displayName ?? opts.username;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 28px sans-serif";
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
-  ctx.fillText("TRUST GUARD", 240, 118);
-
-  // Name
-  const name = opts.displayName ?? opts.username;
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 42px sans-serif";
-  ctx.fillText(name, 240, 165);
+  ctx.fillText(name, textX, 90);
 
   if (opts.displayName) {
     ctx.fillStyle = "#72767d";
-    ctx.font = "20px sans-serif";
-    ctx.fillText(`@${opts.username}`, 240, 195);
+    ctx.font = "16px sans-serif";
+    ctx.fillText(`@${opts.username}`, textX, 114);
   }
 
-  // Verified badge
-  const badgeY = 218;
-  ctx.fillStyle = "#57f28722";
-  drawRoundedRect(ctx, 240, badgeY, 130, 32, 16);
+  // VERIFIED badge
+  const badgeX = textX;
+  const badgeY = opts.displayName ? 126 : 106;
+  ctx.fillStyle = "#57f28718";
+  drawRoundedRect(ctx, badgeX, badgeY, 100, 26, 13);
   ctx.fill();
   ctx.strokeStyle = "#57f287";
   ctx.lineWidth = 1;
   ctx.stroke();
   ctx.fillStyle = "#57f287";
-  ctx.font = "bold 13px sans-serif";
+  ctx.font = "bold 12px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("VERIFIED", 305, badgeY + 21);
+  ctx.fillText("✓ VERIFIED", badgeX + 50, badgeY + 17);
 
-  // Tier badge
-  ctx.fillStyle = `${accent}22`;
-  drawRoundedRect(ctx, 386, badgeY, 175, 32, 16);
-  ctx.fill();
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.fillStyle = accent;
-  ctx.fillText(`TIER ${opts.tier} - ${tierLabel(opts.tier)}`, 473, badgeY + 21);
-
-  // Divider
+  // Vertical divider
   ctx.strokeStyle = "rgba(255,255,255,0.08)";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(80, 280); ctx.lineTo(WIDTH - 80, 280); ctx.stroke();
+  ctx.moveTo(460, 36);
+  ctx.lineTo(460, HEIGHT - 36);
+  ctx.stroke();
 
-  // Info grid
+  // Right: info fields
+  const infoX = 490;
   const fields = [
     { label: "USER ID", value: opts.userId },
     { label: "ACCOUNT CREATED", value: formatDate(opts.accountCreatedAt) },
     { label: "JOINED SERVER", value: formatDate(opts.joinedAt) },
-    { label: "VERIFIED AT", value: formatDate(opts.verifiedAt) },
-    { label: "TRUST SCORE", value: `${100 - opts.riskScore}/100` },
-    { label: "RISK LEVEL", value: riskLabel(opts.riskScore) },
+    { label: "VERIFIED", value: formatDate(opts.verifiedAt) },
   ];
 
-  const colW = (WIDTH - 160) / 3;
-  fields.forEach((field, i) => {
-    const col = i % 3;
-    const row = Math.floor(i / 3);
-    const fx = 80 + col * colW;
-    const fy = 310 + row * 90;
-
+  fields.forEach((f, i) => {
+    const fy = 52 + i * 52;
     ctx.fillStyle = "#72767d";
-    ctx.font = "bold 11px sans-serif";
+    ctx.font = "bold 10px sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    ctx.fillText(field.label, fx, fy);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "16px sans-serif";
-    ctx.fillText(field.value, fx, fy + 24);
+    ctx.fillText(f.label, infoX, fy);
+    ctx.fillStyle = "#dcddde";
+    ctx.font = "14px sans-serif";
+    ctx.fillText(f.value, infoX, fy + 20);
   });
 
-  // Bottom bar
-  const barY = HEIGHT - 80;
-  ctx.fillStyle = "rgba(0,0,0,0.3)";
-  drawRoundedRect(ctx, 40, barY, WIDTH - 80, 40, 12);
-  ctx.fill();
-  ctx.fillStyle = "#72767d";
-  ctx.font = "13px sans-serif";
+  // Footer
+  ctx.fillStyle = "rgba(255,255,255,0.03)";
+  ctx.fillRect(0, HEIGHT - 30, WIDTH, 30);
+  ctx.fillStyle = "#4f545c";
+  ctx.font = "11px sans-serif";
   ctx.textAlign = "left";
-  ctx.fillText("Verification powered by Trust Guard", 70, barY + 26);
+  ctx.fillText("Trust Guard  •  Verification System", 16, HEIGHT - 10);
   ctx.textAlign = "right";
-  ctx.fillText(`Tier ${opts.tier} - ${opts.tier <= 2 ? "Auto-Approved" : "Verified"}`, WIDTH - 70, barY + 26);
+  ctx.fillText(new Date().getFullYear().toString(), WIDTH - 16, HEIGHT - 10);
 
   return canvas.toBuffer("image/png") as unknown as Buffer;
 }
