@@ -6,7 +6,7 @@
   },
   "deploy": {
     "startCommand": "pnpm --filter @workspace/api-server run start",
-    "healthcheckPath": "/api/health",
+    "healthcheckPath": "/api/healthz",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }
