@@ -1,0 +1,5 @@
+[phases.setup]
+aptPkgs = ["fonts-noto-core", "fonts-noto-mono", "fontconfig"]
+
+[phases.post-install]
+cmds = ["fc-cache -fv || true"]
