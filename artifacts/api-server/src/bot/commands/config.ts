@@ -90,6 +90,24 @@ const config: Command = {
         .setDescription("Show the full current Trust Guard configuration")
     )
     .addSubcommand(sub =>
+      sub.setName("difficulty")
+        .setDescription("Set default verification difficulty (tier) for all new members")
+        .addIntegerOption(opt =>
+          opt.setName("level")
+            .setDescription("Tier level — Auto lets risk scoring decide")
+            .setRequired(true)
+            .addChoices(
+              { name: "Auto (use risk assessment)", value: 0 },
+              { name: "Tier 1 — Instant access (trusted accounts only)", value: 1 },
+              { name: "Tier 2 — Captcha only", value: 2 },
+              { name: "Tier 3 — Captcha + questionnaire", value: 3 },
+              { name: "Tier 4 — Captcha + questionnaire + challenge", value: 4 },
+              { name: "Tier 5 — All steps + staff review", value: 5 },
+              { name: "Tier 6 — All steps + mandatory staff review", value: 6 },
+            )
+        )
+    )
+    .addSubcommand(sub =>
       sub.setName("reset")
         .setDescription("⚠️ Clear ALL Trust Guard settings back to default")
     ),
@@ -255,8 +273,35 @@ const config: Command = {
         break;
       }
 
+      case "difficulty": {
+        const level = interaction.options.getInteger("level", true);
+        const tierOverride = level === 0 ? null : level;
+        await upsertGuildConfig(guildId, { tierOverride });
+        const levelLabels: Record<number, string> = {
+          0: "Auto (risk assessment)",
+          1: "Tier 1 — Instant access",
+          2: "Tier 2 — Captcha only",
+          3: "Tier 3 — Captcha + questionnaire",
+          4: "Tier 4 — Captcha + questionnaire + challenge",
+          5: "Tier 5 — All steps + staff review",
+          6: "Tier 6 — All steps + mandatory staff review",
+        };
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("✅ Difficulty Level Set")
+              .setDescription(`All new members will now be routed to: **${levelLabels[level]}**`)
+              .setColor(0x57f287).setTimestamp()
+          ]
+        });
+        break;
+      }
+
       case "status": {
         const cfg = await getGuildConfig(guildId);
+        const difficultyLabel = cfg?.tierOverride == null
+          ? "Auto (risk assessment)"
+          : `Tier ${cfg.tierOverride} (forced)`;
         await interaction.editReply({
           embeds: [
             new EmbedBuilder()
@@ -285,6 +330,7 @@ const config: Command = {
                   inline: false,
                 },
                 { name: "⚡ Status", value: cfg?.enabled !== false ? "✅ Enabled" : "❌ Disabled", inline: true },
+                { name: "🎯 Difficulty", value: difficultyLabel, inline: true },
               )
               .setFooter({ text: `Guild: ${guildId}` })
               .setTimestamp()
@@ -303,6 +349,7 @@ const config: Command = {
           welcomeChannelId: null,
           botChannelId: null,
           staffRoleId: null,
+          tierOverride: null,
           enabled: true,
         });
         await interaction.editReply({
