@@ -68,6 +68,38 @@ export function clearAllSessions(): number {
   return count;
 }
 
+// ── Verify-prompt message tracking ────────────────────────────────────────────
+// Tracks the channel message posted when a member joins so it can be deleted
+// once they verify (or auto-deleted after 15 minutes).
+
+interface VerifyMessageEntry { channelId: string; messageId: string; timer: NodeJS.Timeout; }
+const verifyMessages = new Map<string, VerifyMessageEntry>();
+
+export function storeVerifyMessage(userId: string, guildId: string, channelId: string, messageId: string): void {
+  const key = sessionKey(userId, guildId);
+  const existing = verifyMessages.get(key);
+  if (existing) clearTimeout(existing.timer);
+  const timer = setTimeout(() => { void deleteVerifyMessage(userId, guildId); }, 15 * 60 * 1000);
+  verifyMessages.set(key, { channelId, messageId, timer });
+}
+
+export async function deleteVerifyMessage(userId: string, guildId: string): Promise<void> {
+  const key = sessionKey(userId, guildId);
+  const entry = verifyMessages.get(key);
+  if (!entry) return;
+  clearTimeout(entry.timer);
+  verifyMessages.delete(key);
+  try {
+    const ch = await client.channels.fetch(entry.channelId);
+    if (ch?.isTextBased()) {
+      const msg = await (ch as TextChannel).messages.fetch(entry.messageId).catch(() => null);
+      await msg?.delete().catch(() => {});
+    }
+  } catch {
+    // Message may already be gone
+  }
+}
+
 // ── Embeds ────────────────────────────────────────────────────────────────────
 
 export function buildWelcomeEmbed(member: GuildMember, tier: RiskTier, _score: number) {
