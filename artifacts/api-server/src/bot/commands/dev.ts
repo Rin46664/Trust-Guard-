@@ -428,13 +428,18 @@ const dev: Command = {
               tier,
               verifiedAt: new Date(),
             });
-            await interaction.editReply({
-              content: `🧪 Test card for **Tier ${tier} — ${getTierLabel(tier)}**`,
-              files: [new AttachmentBuilder(buf, { name: "test-card.png" })],
-            });
+
+            // Post the card publicly in the current channel
+            if (interaction.channel?.isTextBased()) {
+              await interaction.channel.send({
+                content: `Tier ${tier} — ${getTierLabel(tier)} (test card)`,
+                files: [new AttachmentBuilder(buf, { name: "verification.png" })],
+              });
+            }
+            await interaction.editReply({ content: `Card posted above.` });
           } catch (err) {
             logError(guildId, makeErrorEmbed("Test Card Failed", err, [{ name: "Tier", value: String(tier) }]));
-            await interaction.editReply("❌ Card generation failed. Check error-logs channel.");
+            await interaction.editReply("Card generation failed. Check error-logs channel.");
           }
           break;
         }
