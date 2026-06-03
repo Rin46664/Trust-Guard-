@@ -58,34 +58,21 @@ export default function registerGuildMemberAddEvent(c: TrustGuardClient) {
 
       if (verifyChannelId) {
         try {
-          const embed = buildWelcomeEmbed(member, assessment.tier, assessment.score);
-          await member.send({ embeds: [embed], components: [buildVerifyButton()] });
-          await addLog(member.id, member.guild.id, member.user.username, "dm_sent", { tier: assessment.tier });
-        } catch {
-          // DMs closed — post in verification channel
-          try {
-            const ch = await client.channels.fetch(verifyChannelId) as TextChannel | null;
-            if (ch?.isTextBased()) {
-              const embed = buildWelcomeEmbed(member, assessment.tier, assessment.score);
-              const msg = await ch.send({ content: `<@${member.id}>`, embeds: [embed], components: [buildVerifyButton()] });
-              setTimeout(() => msg.delete().catch(() => {}), 10 * 60 * 1000);
-            }
-          } catch (err) {
-            logger.error({ err, userId: member.id }, "Failed to send verification prompt");
-            logError(member.guild.id, makeErrorEmbed(
-              "Failed to Send Verification Prompt",
-              err,
-              [{ name: "User", value: `<@${member.id}>`, inline: true }]
-            ));
+          const ch = await client.channels.fetch(verifyChannelId) as TextChannel | null;
+          if (ch?.isTextBased()) {
+            const embed = buildWelcomeEmbed(member, assessment.tier, assessment.score);
+            await ch.send({ content: `<@${member.id}>`, embeds: [embed], components: [buildVerifyButton()] });
           }
+        } catch (err) {
+          logger.error({ err, userId: member.id }, "Failed to send verification prompt");
+          logError(member.guild.id, makeErrorEmbed(
+            "Failed to Send Verification Prompt",
+            err,
+            [{ name: "User", value: `<@${member.id}>`, inline: true }]
+          ));
         }
       } else {
-        try {
-          const embed = buildWelcomeEmbed(member, assessment.tier, assessment.score);
-          await member.send({ embeds: [embed], components: [buildVerifyButton()] });
-        } catch {
-          logger.info({ userId: member.id }, "Could not DM user — no verification channel configured");
-        }
+        logger.info({ userId: member.id }, "No verification channel configured — skipping prompt");
       }
 
       logger.info({ userId: member.id, tier: assessment.tier, score: assessment.score }, "Member processed on join");
