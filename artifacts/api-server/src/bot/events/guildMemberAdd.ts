@@ -1,7 +1,7 @@
 import { Events, type TextChannel } from "discord.js";
 import type { TrustGuardClient } from "../client";
 import { assessRisk } from "../lib/riskScoring";
-import { buildWelcomeEmbed, buildVerifyButton } from "../lib/verification";
+import { buildWelcomeEmbed, buildVerifyButton, storeVerifyMessage } from "../lib/verification";
 import { upsertUser, addLog, getGuildConfig } from "../lib/db";
 import { recordJoin } from "../lib/rateLimiter";
 import { logger } from "../../lib/logger";
@@ -56,12 +56,17 @@ export default function registerGuildMemberAddEvent(c: TrustGuardClient) {
         return;
       }
 
+      // Apply tier override if configured
+      const effectiveTier = (config?.tierOverride ?? assessment.tier) as typeof assessment.tier;
+      const displayAssessment = { ...assessment, tier: effectiveTier };
+
       if (verifyChannelId) {
         try {
           const ch = await client.channels.fetch(verifyChannelId) as TextChannel | null;
           if (ch?.isTextBased()) {
-            const embed = buildWelcomeEmbed(member, assessment.tier, assessment.score);
-            await ch.send({ content: `<@${member.id}>`, embeds: [embed], components: [buildVerifyButton()] });
+            const embed = buildWelcomeEmbed(member, displayAssessment.tier, displayAssessment.score);
+            const msg = await ch.send({ content: `<@${member.id}>`, embeds: [embed], components: [buildVerifyButton()] });
+            storeVerifyMessage(member.id, member.guild.id, ch.id, msg.id);
           }
         } catch (err) {
           logger.error({ err, userId: member.id }, "Failed to send verification prompt");
