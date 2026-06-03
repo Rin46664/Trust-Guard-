@@ -9,15 +9,15 @@ export interface QuestionnaireResult {
 export const BASIC_QUESTIONS = [
   { id: "reason", label: "Why are you joining this server?", placeholder: "Tell us why you want to join..." },
   { id: "source", label: "How did you find this server?", placeholder: "e.g. friend invite, Discord search..." },
-  { id: "rules", label: 'Do you agree to follow the server rules? Type "yes" to confirm.', placeholder: "yes" },
+  { id: "rules", label: 'Agree to the rules? Type "yes" to confirm.', placeholder: "yes" },
 ];
 
 export const DETAILED_QUESTIONS = [
   { id: "reason", label: "Why are you joining this server?", placeholder: "Please be specific..." },
   { id: "source", label: "How did you find this server?", placeholder: "e.g. friend invite, Discord search..." },
-  { id: "rules", label: 'Do you agree to follow the server rules? Type "yes" to confirm.', placeholder: "yes" },
+  { id: "rules", label: 'Agree to the rules? Type "yes" to confirm.', placeholder: "yes" },
   { id: "about", label: "Tell us a little about yourself.", placeholder: "Your interests, age group, etc." },
-  { id: "alts", label: "Do you have any other Discord accounts in this server?", placeholder: "yes or no" },
+  { id: "alts", label: "Any other Discord accounts in this server?", placeholder: "yes or no" },
 ];
 
 export function getQuestionsForTier(tier: RiskTier) {
