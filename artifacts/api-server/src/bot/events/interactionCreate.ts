@@ -18,7 +18,7 @@ import {
   BTN_VERIFY, MODAL_CAPTCHA, MODAL_QUESTIONNAIRE, MODAL_CHALLENGE,
   getSession, setSession, clearSession,
   buildCaptchaModal, buildQuestionnaireModal, buildChallengeModal,
-  assignVerifiedRole, postVerificationCard,
+  assignVerifiedRole, postVerificationCard, deleteVerifyMessage,
 } from "../lib/verification";
 import {
   upsertUser, createAttempt, updateAttempt, updateUserStatus,
@@ -171,7 +171,11 @@ async function handleVerifyButton(interaction: ButtonInteraction) {
 
   recordAttempt(member.id, guildId);
 
-  const assessment = assessRisk(member);
+  const rawAssessment = assessRisk(member);
+  const guildCfg = await getGuildConfig(guildId);
+  const assessment = guildCfg?.tierOverride != null
+    ? { ...rawAssessment, tier: guildCfg.tierOverride as typeof rawAssessment.tier }
+    : rawAssessment;
   await upsertUser(member, assessment);
   const attempt = await createAttempt(member.id, guildId, assessment.tier, assessment.score);
   await incrementUserAttempts(member.id, guildId);
@@ -199,6 +203,7 @@ async function handleVerifyButton(interaction: ButtonInteraction) {
       await addLog(member.id, guildId, member.user.username, "verified", { tier: 1, method: "instant" });
       await interaction.editReply({ content: "✅ Instantly verified as a trusted account! Welcome!" });
       await postVerificationCard(member, assessment.score, assessment.tier);
+      void deleteVerifyMessage(member.id, guildId);
     } else {
       await interaction.editReply({ content: "❌ Verification failed — no verified role configured. Contact an admin." });
     }
@@ -303,6 +308,7 @@ async function handleCaptchaSubmit(interaction: ModalSubmitInteraction) {
       clearSession(member.id, guildId);
       await interaction.editReply({ content: "✅ Captcha passed! You've been verified. Welcome!" });
       await postVerificationCard(member, 20, session.tier);
+      void deleteVerifyMessage(member.id, guildId);
     } else {
       await interaction.editReply({ content: "❌ Role assignment failed. Contact an admin." });
     }
@@ -386,6 +392,7 @@ async function handleQuestionnaireSubmit(interaction: ModalSubmitInteraction) {
       clearSession(member.id, guildId);
       await interaction.editReply({ content: "✅ Questionnaire passed! You've been verified. Welcome!" });
       await postVerificationCard(member, 40, session.tier);
+      void deleteVerifyMessage(member.id, guildId);
     } else {
       await interaction.editReply({ content: "❌ Role assignment failed. Contact an admin." });
     }
@@ -455,6 +462,7 @@ async function handleChallengeSubmit(interaction: ModalSubmitInteraction) {
       clearSession(member.id, guildId);
       await interaction.editReply({ content: "✅ All steps passed! You've been verified. Welcome!" });
       await postVerificationCard(member, 55, session.tier);
+      void deleteVerifyMessage(member.id, guildId);
     } else {
       await interaction.editReply({ content: "❌ Role assignment failed. Contact an admin." });
     }
@@ -491,6 +499,7 @@ async function handleChallengeSubmit(interaction: ModalSubmitInteraction) {
   ));
 
   clearSession(member.id, guildId);
+  void deleteVerifyMessage(member.id, guildId);
 
   // Notify staff in log channel
   try {
