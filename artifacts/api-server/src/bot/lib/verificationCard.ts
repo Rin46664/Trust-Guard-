@@ -36,17 +36,9 @@ async function downloadFont(url: string, dest: string): Promise<void> {
 async function ensureFonts(): Promise<void> {
   if (fontsReady) return;
 
-  // Attempt 1 — system fonts (installed by nixpacks.toml on Railway)
-  GlobalFonts.loadSystemFonts();
-  const systemFamilies = GlobalFonts.families;
-  if (systemFamilies.length > 0) {
-    logger.info({ count: systemFamilies.length }, "Loaded system fonts for canvas");
-    fontsReady = true;
-    return;
-  }
-
-  // Attempt 2 — download Noto Sans to /tmp
-  logger.warn("No system fonts found — downloading Noto Sans fallback");
+  // Always register NotoSans explicitly by name so @napi-rs/canvas can find it.
+  // Relying on system font detection causes "vertical rectangles" because the
+  // generic "sans-serif" family may not map to a Latin-capable font on Railway.
   try {
     mkdirSync(FONT_DIR, { recursive: true });
     for (const [dest, url] of Object.entries(FONT_URLS)) {
@@ -54,9 +46,9 @@ async function ensureFonts(): Promise<void> {
     }
     GlobalFonts.registerFromPath(FONT_PATH, FONT_FAMILY);
     GlobalFonts.registerFromPath(FONT_BOLD_PATH, FONT_FAMILY);
-    logger.info("Downloaded and registered Noto Sans fallback font");
+    logger.info("Registered NotoSans font for canvas");
   } catch (err) {
-    logger.error({ err }, "Font download failed — text may not render");
+    logger.error({ err }, "Font setup failed — text may not render");
   }
   fontsReady = true;
 }
