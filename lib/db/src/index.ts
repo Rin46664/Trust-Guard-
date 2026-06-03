@@ -10,7 +10,12 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const isPrivate = process.env.DATABASE_URL.includes(".railway.internal");
+
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: isPrivate ? undefined : { rejectUnauthorized: false },
+});
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
