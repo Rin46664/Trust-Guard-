@@ -72,19 +72,19 @@ export function clearAllSessions(): number {
 
 export function buildWelcomeEmbed(member: GuildMember, tier: RiskTier, _score: number) {
   const descriptions: Record<RiskTier, string> = {
-    1: "Click **Verify Me** below to gain access to the server.",
-    2: "Click **Verify Me** below to complete a quick security check.",
-    3: "Click **Verify Me** below to complete a short verification process.",
-    4: "Click **Verify Me** below to complete our verification steps.",
-    5: "Click **Verify Me** below to begin. Your account will be reviewed by our team before access is granted.",
-    6: "Click **Verify Me** below to begin. Staff approval is required for new accounts.",
+    1: "Click the button below to gain instant access.",
+    2: "Click the button below to complete a quick security check.",
+    3: "Click the button below to complete a short verification process.",
+    4: "Click the button below to complete the verification steps.",
+    5: "Click the button below to begin. Your account will be reviewed by a staff member before access is granted.",
+    6: "Click the button below to begin. Staff approval is required for all new accounts.",
   };
 
   return new EmbedBuilder()
-    .setTitle("🛡️ Server Verification")
-    .setDescription(`Welcome, <@${member.id}>!\n\nTo access the server you need to verify your account.\n\n${descriptions[tier]}`)
+    .setTitle("Verification Required")
+    .setDescription(`Welcome, <@${member.id}>.\n\nTo access this server you need to complete a quick verification.\n\n${descriptions[tier]}`)
     .setColor(0x5865f2)
-    .setFooter({ text: "Trust Guard • Verification System" })
+    .setFooter({ text: "Trust Guard" })
     .setTimestamp();
 }
 
@@ -92,8 +92,7 @@ export function buildVerifyButton() {
   const btn = new ButtonBuilder()
     .setCustomId(BTN_VERIFY)
     .setLabel("Verify Me")
-    .setStyle(ButtonStyle.Primary)
-    .setEmoji("🛡️");
+    .setStyle(ButtonStyle.Primary);
   return new ActionRowBuilder<ButtonBuilder>().addComponents(btn);
 }
 
@@ -102,7 +101,7 @@ export function buildVerifyButton() {
 export function buildCaptchaModal(challenge: CaptchaChallenge): ModalBuilder {
   const modal = new ModalBuilder()
     .setCustomId(MODAL_CAPTCHA)
-    .setTitle("🛡️ Verification — Captcha");
+    .setTitle("Verification — Security Check");
 
   const input = new TextInputBuilder()
     .setCustomId("captcha_answer")
@@ -119,7 +118,7 @@ export function buildCaptchaModal(challenge: CaptchaChallenge): ModalBuilder {
 export function buildQuestionnaireModal(tier: RiskTier): ModalBuilder {
   const modal = new ModalBuilder()
     .setCustomId(MODAL_QUESTIONNAIRE)
-    .setTitle("🛡️ Verification — Questionnaire");
+    .setTitle("Verification — Questionnaire");
 
   const questions = getQuestionsForTier(tier);
   for (const q of questions.slice(0, 5)) {
@@ -137,7 +136,7 @@ export function buildQuestionnaireModal(tier: RiskTier): ModalBuilder {
 export function buildChallengeModal(challenge: CaptchaChallenge): ModalBuilder {
   const modal = new ModalBuilder()
     .setCustomId(MODAL_CHALLENGE)
-    .setTitle("🛡️ Verification — Final Challenge");
+    .setTitle("Verification — Final Challenge");
 
   const input = new TextInputBuilder()
     .setCustomId("challenge_answer")
@@ -235,7 +234,7 @@ export async function postVerificationCard(member: GuildMember, riskScore: numbe
   const attachment = new AttachmentBuilder(cardBuffer, { name: "verification.png" });
 
   const embed = new EmbedBuilder()
-    .setTitle("✅ Member Verified")
+    .setTitle("Member Verified")
     .setDescription(`<@${member.id}> has passed verification.`)
     .addFields(
       { name: "Username", value: `@${member.user.username}`, inline: true },
@@ -243,6 +242,7 @@ export async function postVerificationCard(member: GuildMember, riskScore: numbe
     )
     .setImage("attachment://verification.png")
     .setColor(0x57f287)
+    .setFooter({ text: "Trust Guard" })
     .setTimestamp();
 
   const channelIds = [...new Set([logChannelId, welcomeChannelId])].filter(Boolean) as string[];
@@ -275,14 +275,13 @@ export async function postVerificationCard(member: GuildMember, riskScore: numbe
 
 export async function sendVerificationMessage(channel: TextChannel, guildId: string) {
   const embed = new EmbedBuilder()
-    .setTitle("🛡️ Server Verification")
+    .setTitle("Verification")
     .setDescription(
-      "Welcome! To access the rest of the server you need to verify your account.\n\n" +
-      "**Click the button below to get started.**\n\n" +
-      "The process only takes a moment. If you can't see this button, use the `/verify` command."
+      "To access this server you need to verify your account.\n\n" +
+      "Click the button below to get started. The process only takes a moment."
     )
     .setColor(0x5865f2)
-    .setFooter({ text: "Trust Guard • Verification System" })
+    .setFooter({ text: "Trust Guard" })
     .setTimestamp();
 
   await channel.send({ embeds: [embed], components: [buildVerifyButton()] });
