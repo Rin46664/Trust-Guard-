@@ -1,17 +1,82 @@
-import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { createCanvas, loadImage, GlobalFonts } from "@napi-rs/canvas";
 import type { SKRSContext2D } from "@napi-rs/canvas";
 import type { RiskTier } from "./riskScoring";
 import { logger } from "../../lib/logger";
+import { writeFileSync, existsSync, mkdirSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 
 const WIDTH = 800;
-const HEIGHT = 280;
+const HEIGHT = 260;
+
+// ── Font bootstrap ────────────────────────────────────────────────────────────
+// Railway containers have no system fonts by default. We try system fonts first
+// (installed via nixpacks.toml), then fall back to downloading Noto Sans once.
+
+const FONT_DIR = join(tmpdir(), "tg-fonts");
+const FONT_PATH = join(FONT_DIR, "NotoSans-Regular.ttf");
+const FONT_BOLD_PATH = join(FONT_DIR, "NotoSans-Bold.ttf");
+const FONT_FAMILY = "NotoSans";
+
+// jsdelivr mirrors the Google Noto fonts repo — reliable CDN, no auth needed
+const FONT_URLS: Record<string, string> = {
+  [FONT_PATH]: "https://cdn.jsdelivr.net/gh/notofonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
+  [FONT_BOLD_PATH]: "https://cdn.jsdelivr.net/gh/notofonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
+};
+
+let fontsReady = false;
+
+async function downloadFont(url: string, dest: string): Promise<void> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Font fetch failed: ${res.status} ${url}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  writeFileSync(dest, buf);
+}
+
+async function ensureFonts(): Promise<void> {
+  if (fontsReady) return;
+
+  // Attempt 1 — system fonts (installed by nixpacks.toml on Railway)
+  GlobalFonts.loadSystemFonts();
+  const systemFamilies = GlobalFonts.families;
+  if (systemFamilies.length > 0) {
+    logger.info({ count: systemFamilies.length }, "Loaded system fonts for canvas");
+    fontsReady = true;
+    return;
+  }
+
+  // Attempt 2 — download Noto Sans to /tmp
+  logger.warn("No system fonts found — downloading Noto Sans fallback");
+  try {
+    mkdirSync(FONT_DIR, { recursive: true });
+    for (const [dest, url] of Object.entries(FONT_URLS)) {
+      if (!existsSync(dest)) await downloadFont(url, dest);
+    }
+    GlobalFonts.registerFromPath(FONT_PATH, FONT_FAMILY);
+    GlobalFonts.registerFromPath(FONT_BOLD_PATH, FONT_FAMILY);
+    logger.info("Downloaded and registered Noto Sans fallback font");
+  } catch (err) {
+    logger.error({ err }, "Font download failed — text may not render");
+  }
+  fontsReady = true;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function accentColor(tier: RiskTier): string {
   const colors: Record<RiskTier, string> = {
     1: "#57f287", 2: "#5865f2", 3: "#fee75c",
-    4: "#ed4245", 5: "#eb459e", 6: "#5865f2",
+    4: "#ed4245", 5: "#eb459e", 6: "#99aab5",
   };
   return colors[tier];
+}
+
+function tierLabel(tier: RiskTier): string {
+  const labels: Record<RiskTier, string> = {
+    1: "Trusted", 2: "Normal", 3: "Newer Account",
+    4: "High Risk", 5: "Extreme Risk", 6: "Fresh Account",
+  };
+  return labels[tier];
 }
 
 function formatDate(date: Date): string {
@@ -34,6 +99,8 @@ function drawRoundedRect(ctx: SKRSContext2D, x: number, y: number, w: number, h:
   ctx.closePath();
 }
 
+// ── Card ──────────────────────────────────────────────────────────────────────
+
 export interface CardOptions {
   username: string;
   displayName: string | null;
@@ -47,46 +114,52 @@ export interface CardOptions {
 }
 
 export async function generateVerificationCard(opts: CardOptions): Promise<Buffer> {
+  await ensureFonts();
+
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext("2d");
   const accent = accentColor(opts.tier);
 
-  // Background
+  const font = (size: number, weight: "normal" | "bold" = "normal") =>
+    `${weight === "bold" ? "bold " : ""}${size}px ${FONT_FAMILY}, sans-serif`;
+
+  // ── Background ──
   ctx.fillStyle = "#0f1117";
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-  // Subtle gradient overlay
-  const glow = ctx.createRadialGradient(120, HEIGHT / 2, 0, 120, HEIGHT / 2, 300);
-  glow.addColorStop(0, `${accent}18`);
+  // Subtle accent glow (top-left quadrant)
+  const glow = ctx.createRadialGradient(140, HEIGHT / 2, 0, 140, HEIGHT / 2, 280);
+  glow.addColorStop(0, `${accent}15`);
   glow.addColorStop(1, "transparent");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-  // Card border
-  ctx.strokeStyle = "rgba(255,255,255,0.08)";
-  ctx.lineWidth = 1;
-  drawRoundedRect(ctx, 1, 1, WIDTH - 2, HEIGHT - 2, 16);
-  ctx.stroke();
-
-  // Left accent bar
+  // ── Left accent bar ──
   ctx.fillStyle = accent;
-  drawRoundedRect(ctx, 0, 0, 5, HEIGHT, 3);
+  drawRoundedRect(ctx, 0, 0, 4, HEIGHT, 2);
   ctx.fill();
 
-  // Avatar
-  const avatarSize = 100;
-  const avatarX = 36;
+  // ── Card border ──
+  ctx.strokeStyle = "rgba(255,255,255,0.07)";
+  ctx.lineWidth = 1;
+  drawRoundedRect(ctx, 0.5, 0.5, WIDTH - 1, HEIGHT - 1, 12);
+  ctx.stroke();
+
+  // ── Avatar ──
+  const avatarSize = 80;
+  const avatarX = 30;
   const avatarY = (HEIGHT - avatarSize) / 2;
   const cx = avatarX + avatarSize / 2;
   const cy = avatarY + avatarSize / 2;
 
+  // Avatar clip + draw
   ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, avatarSize / 2, 0, Math.PI * 2);
   ctx.clip();
   if (opts.avatarUrl) {
     try {
-      const img = await loadImage(opts.avatarUrl + "?size=256");
+      const img = await loadImage(opts.avatarUrl.replace(/\?.*$/, "") + "?size=128");
       ctx.drawImage(img, avatarX, avatarY, avatarSize, avatarSize);
     } catch {
       ctx.fillStyle = "#2f3136";
@@ -96,7 +169,7 @@ export async function generateVerificationCard(opts: CardOptions): Promise<Buffe
     ctx.fillStyle = "#2f3136";
     ctx.fillRect(avatarX, avatarY, avatarSize, avatarSize);
     ctx.fillStyle = "#72767d";
-    ctx.font = "bold 40px sans-serif";
+    ctx.font = font(32, "bold");
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(opts.username[0]?.toUpperCase() ?? "?", cx, cy);
@@ -105,79 +178,89 @@ export async function generateVerificationCard(opts: CardOptions): Promise<Buffe
 
   // Avatar ring
   ctx.beginPath();
-  ctx.arc(cx, cy, avatarSize / 2 + 3, 0, Math.PI * 2);
+  ctx.arc(cx, cy, avatarSize / 2 + 2.5, 0, Math.PI * 2);
   ctx.strokeStyle = accent;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Name section
-  const textX = 160;
-  const name = opts.displayName ?? opts.username;
+  // ── Left column: name + badge + tier ──
+  const nameX = 126;
+  const displayName = opts.displayName ?? opts.username;
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 28px sans-serif";
+  ctx.font = font(24, "bold");
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
-  ctx.fillText(name, textX, 90);
+  ctx.fillText(displayName, nameX, 82);
 
   if (opts.displayName) {
     ctx.fillStyle = "#72767d";
-    ctx.font = "16px sans-serif";
-    ctx.fillText(`@${opts.username}`, textX, 114);
+    ctx.font = font(13);
+    ctx.fillText(`@${opts.username}`, nameX, 102);
   }
 
   // VERIFIED badge
-  const badgeX = textX;
-  const badgeY = opts.displayName ? 126 : 106;
-  ctx.fillStyle = "#57f28718";
-  drawRoundedRect(ctx, badgeX, badgeY, 100, 26, 13);
+  const badgeY = opts.displayName ? 112 : 94;
+  const badgeW = 90;
+  const badgeH = 22;
+  ctx.fillStyle = `${accent}22`;
+  drawRoundedRect(ctx, nameX, badgeY, badgeW, badgeH, 11);
   ctx.fill();
-  ctx.strokeStyle = "#57f287";
+  ctx.strokeStyle = accent;
   ctx.lineWidth = 1;
   ctx.stroke();
-  ctx.fillStyle = "#57f287";
-  ctx.font = "bold 12px sans-serif";
+  ctx.fillStyle = accent;
+  ctx.font = font(11, "bold");
   ctx.textAlign = "center";
-  ctx.fillText("✓ VERIFIED", badgeX + 50, badgeY + 17);
+  ctx.textBaseline = "middle";
+  ctx.fillText("VERIFIED", nameX + badgeW / 2, badgeY + badgeH / 2);
 
-  // Vertical divider
-  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  // Tier label
+  ctx.fillStyle = "#72767d";
+  ctx.font = font(12);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(`Tier ${opts.tier}  —  ${tierLabel(opts.tier)}`, nameX, badgeY + badgeH + 20);
+
+  // ── Divider ──
+  ctx.strokeStyle = "rgba(255,255,255,0.07)";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(460, 36);
-  ctx.lineTo(460, HEIGHT - 36);
+  ctx.moveTo(430, 30);
+  ctx.lineTo(430, HEIGHT - 30);
   ctx.stroke();
 
-  // Right: info fields
-  const infoX = 490;
-  const fields = [
+  // ── Right column: info fields ──
+  const infoX = 458;
+  const fields: { label: string; value: string }[] = [
     { label: "USER ID", value: opts.userId },
     { label: "ACCOUNT CREATED", value: formatDate(opts.accountCreatedAt) },
     { label: "JOINED SERVER", value: formatDate(opts.joinedAt) },
-    { label: "VERIFIED", value: formatDate(opts.verifiedAt) },
+    { label: "VERIFIED AT", value: formatDate(opts.verifiedAt) },
   ];
 
   fields.forEach((f, i) => {
-    const fy = 52 + i * 52;
-    ctx.fillStyle = "#72767d";
-    ctx.font = "bold 10px sans-serif";
+    const fy = 42 + i * 50;
+    ctx.fillStyle = "#4f545c";
+    ctx.font = font(10, "bold");
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     ctx.fillText(f.label, infoX, fy);
     ctx.fillStyle = "#dcddde";
-    ctx.font = "14px sans-serif";
-    ctx.fillText(f.value, infoX, fy + 20);
+    ctx.font = font(14);
+    ctx.fillText(f.value, infoX, fy + 19);
   });
 
-  // Footer
-  ctx.fillStyle = "rgba(255,255,255,0.03)";
-  ctx.fillRect(0, HEIGHT - 30, WIDTH, 30);
+  // ── Footer strip ──
+  ctx.fillStyle = "rgba(255,255,255,0.025)";
+  ctx.fillRect(0, HEIGHT - 26, WIDTH, 26);
   ctx.fillStyle = "#4f545c";
-  ctx.font = "11px sans-serif";
+  ctx.font = font(10);
   ctx.textAlign = "left";
-  ctx.fillText("Trust Guard  •  Verification System", 16, HEIGHT - 10);
+  ctx.textBaseline = "middle";
+  ctx.fillText("Trust Guard  •  Verification System", 14, HEIGHT - 13);
   ctx.textAlign = "right";
-  ctx.fillText(new Date().getFullYear().toString(), WIDTH - 16, HEIGHT - 10);
+  ctx.fillText(String(new Date().getFullYear()), WIDTH - 14, HEIGHT - 13);
 
   return canvas.toBuffer("image/png") as unknown as Buffer;
 }
