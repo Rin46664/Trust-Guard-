@@ -37,17 +37,22 @@ export default {
     const member = interaction.member as GuildMember;
     const guildId = interaction.guildId!;
 
-    // Already verified?
+    // Already verified? Just restore the role (handles rejoins).
     const existing = await getUser(member.id, guildId);
     if (existing?.status === "verified") {
-      await interaction.reply({
-        embeds: [
-          new EmbedBuilder()
-            .setDescription("✅ You're already verified and have access to the server!")
-            .setColor(0x57f287),
-        ],
-        ephemeral: true,
-      });
+      await interaction.deferReply({ ephemeral: true });
+      const success = await assignVerifiedRole(member);
+      if (success) {
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setDescription("✅ Welcome back! Your verified role has been restored.")
+              .setColor(0x57f287),
+          ],
+        });
+      } else {
+        await interaction.editReply({ content: "❌ Role assignment failed — no verified role configured. Contact an admin." });
+      }
       return;
     }
 
