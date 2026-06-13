@@ -19,7 +19,7 @@ import {
 } from "../lib/verification";
 import {
   getUser, upsertUser, createAttempt, updateAttempt,
-  updateUserStatus, incrementUserAttempts, addLog,
+  updateUserStatus, incrementUserAttempts, addLog, getGuildConfig,
 } from "../lib/db";
 import { logEvent, makeEventEmbed } from "../lib/channelLogger";
 
@@ -99,7 +99,11 @@ export default {
 
     recordAttempt(member.id, guildId);
 
-    const assessment = assessRisk(member);
+    const rawAssessment = assessRisk(member);
+    const guildCfg = await getGuildConfig(guildId);
+    const assessment = guildCfg?.tierOverride != null
+      ? { ...rawAssessment, tier: guildCfg.tierOverride as typeof rawAssessment.tier }
+      : rawAssessment;
     await upsertUser(member, assessment);
     const attempt = await createAttempt(member.id, guildId, assessment.tier, assessment.score);
     await incrementUserAttempts(member.id, guildId);
