@@ -59,11 +59,12 @@ export default function registerInteractionCreateEvent(c: TrustGuardClient) {
       const guildId = interaction.guildId;
       const member = interaction.member as GuildMember | null;
 
-      // Bot-channel restriction
+      // Bot-channel restriction (verification channel is always exempt)
       if (guildId) {
         try {
           const cfg = await getGuildConfig(guildId);
-          if (cfg?.botChannelId && interaction.channelId !== cfg.botChannelId) {
+          const isVerifyChannel = cfg?.verificationChannelId && interaction.channelId === cfg.verificationChannelId;
+          if (cfg?.botChannelId && interaction.channelId !== cfg.botChannelId && !isVerifyChannel) {
             const isAdmin = member?.permissions instanceof PermissionsBitField
               ? member.permissions.has(PermissionsBitField.Flags.Administrator)
               : false;
