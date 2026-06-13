@@ -152,7 +152,13 @@ async function handleVerifyButton(interaction: ButtonInteraction) {
 
   const existing = await getUser(member.id, guildId);
   if (existing?.status === "verified") {
-    await interaction.reply({ content: "✅ You're already verified!", ephemeral: true });
+    await interaction.deferReply({ ephemeral: true });
+    const success = await assignVerifiedRole(member);
+    if (success) {
+      await interaction.editReply({ content: "✅ Welcome back! Your verified role has been restored." });
+    } else {
+      await interaction.editReply({ content: "❌ Role assignment failed — no verified role configured. Contact an admin." });
+    }
     return;
   }
   if (existing?.status === "review") {
