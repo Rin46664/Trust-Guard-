@@ -2,7 +2,7 @@ import { Events, type TextChannel } from "discord.js";
 import type { TrustGuardClient } from "../client";
 import { assessRisk } from "../lib/riskScoring";
 import { buildWelcomeEmbed, buildVerifyButton, storeVerifyMessage } from "../lib/verification";
-import { upsertUser, addLog, getGuildConfig } from "../lib/db";
+import { upsertUser, addLog, getGuildConfig, getUser, updateUserStatus } from "../lib/db";
 import { recordJoin } from "../lib/rateLimiter";
 import { logger } from "../../lib/logger";
 import { logEvent, logError, makeEventEmbed, makeErrorEmbed } from "../lib/channelLogger";
@@ -21,14 +21,25 @@ export default function registerGuildMemberAddEvent(c: TrustGuardClient) {
         ));
       }
 
+      // Check if this is a rejoin before upserting
+      const existingUser = await getUser(member.id, member.guild.id);
+      const isRejoin = existingUser?.status === "verified";
+
       const assessment = assessRisk(member);
       await upsertUser(member, assessment);
+
+      // Reset verified status so rejoining members go through captcha again
+      if (isRejoin) {
+        await updateUserStatus(member.id, member.guild.id, "pending");
+      }
+
       await addLog(member.id, member.guild.id, member.user.username, "joined", {
         riskScore: assessment.score,
         tier: assessment.tier,
         ageDays: Math.floor(assessment.accountAgeDays),
         signals: assessment.signals,
         massJoin: isMassJoin,
+        isRejoin,
       });
 
       // Log join to activity channel
@@ -60,7 +71,10 @@ export default function registerGuildMemberAddEvent(c: TrustGuardClient) {
       const effectiveTier = (config?.tierOverride ?? assessment.tier) as typeof assessment.tier;
       const displayAssessment = { ...assessment, tier: effectiveTier };
 
-      if (verifyChannelId) {
+      // Only send the public join embed for first-time joiners.
+      // Rejoining members are reset to pending and can use /verify or the
+      // persistent Verify button — both respond ephemerally (only visible to them).
+      if (verifyChannelId && !isRejoin) {
         try {
           const ch = await client.channels.fetch(verifyChannelId) as TextChannel | null;
           if (ch?.isTextBased()) {
@@ -76,11 +90,11 @@ export default function registerGuildMemberAddEvent(c: TrustGuardClient) {
             [{ name: "User", value: `<@${member.id}>`, inline: true }]
           ));
         }
-      } else {
+      } else if (!verifyChannelId) {
         logger.info({ userId: member.id }, "No verification channel configured — skipping prompt");
       }
 
-      logger.info({ userId: member.id, tier: assessment.tier, score: assessment.score }, "Member processed on join");
+      logger.info({ userId: member.id, tier: assessment.tier, score: assessment.score, isRejoin }, "Member processed on join");
     } catch (err) {
       logger.error({ err, userId: member.id }, "Error processing new member");
       logError(member.guild.id, makeErrorEmbed(
